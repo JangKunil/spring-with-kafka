@@ -1,2 +1,8 @@
-# spring-with-kafka
-Kafka 코드 기록용
+# spring-kafka
+study 
+
+![kafka](/doc/img/kafka.png)
+
+### Getting Started 
+
+https://codenotfound.com/spring-kafka-consumer-producer-example.html
