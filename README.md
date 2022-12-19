@@ -109,6 +109,41 @@ KafkaProducer는 별도의 Sender Thread를 생성한다. Sender Thread는 Recor
 
 그리고 Broker의 응답을 받아서 사용자가 Record 전송 시 설정한 콜백이 있으면 실행하고, Broker로부터 받은 응답 결과를 Future를 통해서 사용자에게 전달한다.
 
+### Serialization
+
+사용자로부터 전달된 Record의 Key, Value는 지정된 Serializer에 의해서 Byte Array로 변환된다. 
+Serializer는 key.serializer, value.serializer 설정값으로 지정하거나, KafkaProducer 생성 시 지정할 수 있다.
+
+### Partitioning
+
+Kafka의 Topic은 여러 개의 Partition으로 나뉘어 있는데, 사용자의 Record는 지정된 Partitioner에 의해서 어떤 파티션으로 보내질지 정해진다. Partitioner는 기본적으로 Record를 받아서 Partition Number를 반환하는 역할을 한다. partitioner.class를 설정하여 Partitioner를 지정할 수 있으며, Partitioner를 지정하지 않으면 org.apache.kafka.clients.producer.internals.DefaultPartitioner가 사용된다.
+
+Record 생성 시 Partition 지정이 가능하기 때문에, Partition이 지정되어 있는 경우에는 Partitioner를 사용하지 않고 지정된 Partition이 사용된다. Record에 지정된 Partition이 없는 경우 DefaultPartitioner는 다음과 같이 동작한다.
+
+- Key 값이 있는 경우 Key 값의 Hash 값을 이용해서 Partition을 할당한다.
+- Key 값이 없는 경우 Round-Robin 방식으로 Partition이 할당된다.
+
+### Compression
+
+사용자가 전송하려는 Record는 압축을 함으로써 네트워크 전송 비용도 줄일 수 있고 저장 비용도 줄일 수 있다. 
+Record는 RecordAccumulator에 저장될 때 바로 압축되어 저장된다. compression.type을 설정하여 압축 시 사용할 코덱을 지정할 수 있다. 다음과 같은 코덱를 사용할 수 있으며 지정하지 않는 경우 기본값은 none이다.
+
+- gzip
+- snappy
+- lz4
+
+### RecordAccumulator append()
+
+사용자가 전송하려는 Record는 전송 전에 먼저 RecordAccumulator에 저장된다. 
+RecordAccumulator는 batches라는 Map을 가지고 있는데, 이 Map의 Key는 TopicPartition이고, Value는 Deque<RecordBatch>이다.
+
+~~~java
+private final ConcurrentMap<TopicPartition, Deque<ProducerBatch>> batches;
+~~~
+
+RecordAccumulator에 저장하기 전에 Record의 Serialized Size를 검사한다. 
+Serialized Size가 max.request.size 설정값 또는 buffer.memory 설정값보다 크면 RecordTooLargeException이 발생한다. 
+크기가 문제 없으면, RecordAccumulator의 append()를 이용해서 저장한다.
 
 ## KafkaConsumer Client Internals
 
@@ -122,10 +157,12 @@ https://saramin.github.io/2019-09-17-kafka/
 https://joooootopia.tistory.com/30
 
 
-## 영상들 
+## References
 
 - Kafka : https://youtu.be/waw0XXNX-uQ?list=PL3Re5Ri5rZmkY46j6WcJXQYRlDRZSUQ1j
 - Topic : https://youtu.be/7QfEpRTRdIQ
 - Producer : https://www.youtube.com/watch?v=aAu0FE3nvbk
 - Consumer : https://youtu.be/rBVCvv9skT4?list=PL3Re5Ri5rZmkY46j6WcJXQYRlDRZSUQ1j
 - Consumer lag : https://youtu.be/D7C_CFjrzBk
+
+- Kafka 이해하기 : https://medium.com/@umanking/%EC%B9%B4%ED%94%84%EC%B9%B4%EC%97%90-%EB%8C%80%ED%95%B4%EC%84%9C-%EC%9D%B4%EC%95%BC%EA%B8%B0-%ED%95%98%EA%B8%B0%EC%A0%84%EC%97%90-%EB%A8%BC%EC%A0%80-data%EC%97%90-%EB%8C%80%ED%95%B4%EC%84%9C-%EC%9D%B4%EC%95%BC%EA%B8%B0%ED%95%B4%EB%B3%B4%EC%9E%90-d2e3ca2f3c2
