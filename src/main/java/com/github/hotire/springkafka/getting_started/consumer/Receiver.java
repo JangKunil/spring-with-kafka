@@ -30,6 +30,14 @@ public class Receiver {
         this.messages = messages;
     }
 
+    @KafkaListener(topics = "wordcount-output", groupId = "test")
+    public void receiveWordCount(ConsumerRecord<String, String> payload, Acknowledgment acknowledgment) {
+        log.info("received payload : {}", payload);
+        messages.add(payload);
+        latch.countDown();
+        acknowledgment.acknowledge();
+    }
+
     @KafkaListener(topics = "helloworld.t", groupId = "test")
     public void receive(ConsumerRecord<String, String> payload, Acknowledgment acknowledgment) {
         log.info("received payload : {}", payload);
@@ -39,8 +47,10 @@ public class Receiver {
     }
 
     @KafkaListener(topics = "${application.kafka.topics.helloworld}", groupId = "${application.kafka.group.helloworld}-2")
-    public void receive2(ConsumerRecord<String, String> payload, Acknowledgment acknowledgment) {
+    public void receive2(ConsumerRecord<String, String> payload, Acknowledgment acknowledgment) throws InterruptedException {
         log.info("received2 payload : {}", payload);
+
+        Thread.sleep(1000L);
         if (1 == 1) {
             throw new SkippableException("hello");
         }
