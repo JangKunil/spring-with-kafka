@@ -1,7 +1,7 @@
 package com.github.hotire.springkafka.getting_started.consumer;
 
+import java.io.IOException;
 import java.util.Map;
-import java.util.function.BiConsumer;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
@@ -18,12 +18,14 @@ import org.springframework.kafka.listener.ContainerProperties.AckMode;
 import org.springframework.kafka.listener.SeekToCurrentErrorHandler;
 import org.springframework.kafka.listener.adapter.RetryingMessageListenerAdapter;
 import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.kafka.support.KafkaUtils;
 import org.springframework.retry.RecoveryCallback;
 import org.springframework.retry.backoff.ExponentialBackOffPolicy;
 import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
-import org.springframework.util.backoff.FixedBackOff;
+import org.springframework.retry.support.RetryTemplateBuilder;
 
+import com.github.hotire.springkafka.getting_started.CustomKafkaListenerAnnotationBeanPostProcessor;
 import com.github.hotire.springkafka.getting_started.SkippableException;
 
 import lombok.RequiredArgsConstructor;
@@ -35,6 +37,8 @@ import lombok.extern.slf4j.Slf4j;
 public class ReceiverConfig {
 
     private final KafkaProperties kafkaProperties;
+
+    private final CustomKafkaListenerAnnotationBeanPostProcessor postProcessor;
 
     @Bean
     public Map<String, Object> consumerConfigs() {
@@ -54,21 +58,29 @@ public class ReceiverConfig {
         props.setAckMode(AckMode.MANUAL_IMMEDIATE);
         factory.setConsumerFactory(consumerFactory());
 //        factory.setErrorHandler((error, data) -> log.error("error : {}, data : {}", error.getMessage(), data, error));
-        factory.setErrorHandler(new SeekToCurrentErrorHandler(new BiConsumer<ConsumerRecord<?, ?>, Exception>() {
-            @Override
-            public void accept(ConsumerRecord<?, ?> consumerRecord, Exception e) {
-                log.error(e.getMessage(), e);
-            }
-        }, new FixedBackOff(0, 10)));
+//        factory.setErrorHandler(new SeekToCurrentErrorHandler(new BiConsumer<ConsumerRecord<?, ?>, Exception>() {
+//            @Override
+//            public void accept(ConsumerRecord<?, ?> consumerRecord, Exception e) {
+//                log.error(e.getMessage(), e);
+//            }
+//        }, new FixedBackOff(0, 10)));
+        factory.setErrorHandler(new SeekToCurrentErrorHandler());
         factory.setRecoveryCallback((RecoveryCallback<Exception>) retryContext -> {
             KafkaException kafkaException = (KafkaException) retryContext.getLastThrowable();
             if (kafkaException.contains(SkippableException.class)) {
-                retryContext.getAttribute(RetryingMessageListenerAdapter.CONTEXT_RECORD);
+                final ConsumerRecord<?, ?> record = (ConsumerRecord<?, ?>) retryContext.getAttribute(RetryingMessageListenerAdapter.CONTEXT_RECORD);
                 Object ack = retryContext.getAttribute(RetryingMessageListenerAdapter.CONTEXT_ACKNOWLEDGMENT);
+                Object consumer = retryContext.getAttribute(RetryingMessageListenerAdapter.CONTEXT_CONSUMER);
                 if (ack instanceof Acknowledgment) {
                     ((Acknowledgment) ack).acknowledge();
                 }
+
+                final String topic = record.topic();
+                final String groupId = KafkaUtils.getConsumerGroupId();
+                String result = postProcessor.getIdByTopic().get(topic + groupId);
                 return kafkaException;
+            } else {
+                log.info("retry exception");
             }
             throw kafkaException;
         });
@@ -77,8 +89,15 @@ public class ReceiverConfig {
         backOffPolicy.setInitialInterval(1000L);
         backOffPolicy.setMaxInterval(1000L);
         retryTemplate.setBackOffPolicy(backOffPolicy);
-        retryTemplate.setRetryPolicy(new SimpleRetryPolicy(2));
-        factory.setRetryTemplate(retryTemplate);
+        retryTemplate.setRetryPolicy(new SimpleRetryPolicy(4));
+
+        final RetryTemplateBuilder builder = RetryTemplate
+                .builder()
+                .exponentialBackoff(1000, ExponentialBackOffPolicy.DEFAULT_MULTIPLIER, 1001)
+                .maxAttempts(3);
+        builder.notRetryOn(IOException.class);
+        factory.setRetryTemplate(builder.traversingCauses().build());
+
         return factory;
     }
 
