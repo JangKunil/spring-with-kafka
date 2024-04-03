@@ -1,5 +1,5 @@
 # spring-kafka
-study 
+2024년 4월 3일 - 추가 스터티 내용 정리하기
 
 ![kafka](/doc/img/kafka.png)
 
